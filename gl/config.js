@@ -44,6 +44,60 @@ export const config = {
   snapStiffness: 0.04,
   snapDamping: 0.54,
 
+  // Entry — the arrival. Cards start absent, not faint: each one materializes
+  // as a dithered disc opening out from its own centre, cell by cell against
+  // the Bayer grid. Nothing is drawn outside that front, so the blur chain has
+  // no light to smear and a card that hasn't arrived casts no streak.
+  //
+  // Held until the last texture is in — cards render black without one, so
+  // starting sooner spends the arrival on empty rectangles. Press `replay` in
+  // the panel to see it again without reloading.
+  entry: true,
+  // Per card, not for the whole set. Total = entryDuration + stagger × cards.
+  entryDuration: 1050,
+  // Between one card appearing and the next. The order is reshuffled every
+  // time the arrival runs, so it reads as cards landing rather than as a
+  // sequence being played.
+  entryStagger: 60,
+  // Bias on one card's own front. Above 1 holds the centre closed then opens
+  // late, below 1 opens at once and creeps the last of the way.
+  entryCurve: 1.0,
+  // Width of the dithered front as a fraction of the card, and the cell it
+  // breaks up on in device pixels. Softness is the whole character of this: at
+  // 0 it's a clean expanding circle, wide enough and the card arrives as a
+  // scatter of cells with no visible edge at all.
+  entrySoftness: 0.45,
+  entryScale: 9.5,
+  // How round the front is. At 1 it's a true circle, which on a 2:1 card
+  // reaches the top and bottom edges at 45% and spends the rest of the arrival
+  // growing sideways as a band. At 0 it follows the card's own shape and every
+  // edge arrives together. Rides in with the aspect, so it costs no uniform.
+  entryRound: 1,
+
+  // The spin. Runs on its own clock rather than the cards' — it's one move for
+  // the whole helix, and it wants to still be gliding as the last card lands.
+  // Nearly a full turn of the loop, so the helix is travelling fast enough
+  // early on to hold the bend at its clamp rather than easing through it.
+  entrySpin: 9.4,
+  entrySpinDuration: 2400,
+  // Bézier handles, same sense as focusEaseIn/Out: a low in and a high out
+  // means it picks up quickly and spends most of the duration gliding down.
+  entryEaseIn: 0.29,
+  entryEaseOut: 0.94,
+
+  // Print on a card that has arrived but not yet settled — the same poster as
+  // the other three dithers, keyed to how far through its own arrival the card
+  // is. Kept modest: the reveal is what carries the effect, this is what stops
+  // an arrived card from snapping straight to a clean photograph.
+  entryDither: 0.45,
+  entryDitherLevels: 4,
+  entryDitherDissolve: 1.0,
+  entryDitherInk: "#000000",
+  entryDitherAccent: "#ffffff",
+  entryDitherPaper: "#000000",
+  entryDitherGamma: 1.5,
+  entryDitherMono: 0.25,
+
   // Hover — rack focus. The card you point at reads clean while the rest
   // recede: dimmed, blurred and dithered, each on their own settings.
   hoverInEase: 0.095,

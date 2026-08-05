@@ -53,10 +53,10 @@ frustum culling is off and picking doesn't use a raycaster.
 
 **The card buffer** ([`gl/cardbuffer.js`](gl/cardbuffer.js)) re-renders the same
 geometry to an offscreen target with a flat fragment shader, packing card id,
-dim amount and hover amount into R, G and B. It reuses the card vertex shader
-verbatim, so it inherits the helix position and bend for free. The red channel
-is read back a pixel at a time for hit testing; the other two feed the
-composite.
+dim amount, hover amount and entry progress into R, G, B and A. It reuses the
+card vertex shader verbatim, so it inherits the helix position and bend for
+free. The red channel is read back a pixel at a time for hit testing; the rest
+feed the composite.
 
 **The blur chain** ([`gl/post.js`](gl/post.js)) is a separable directional blur
 run twice per level — along the streak axis at full spread, across it at a
@@ -74,6 +74,23 @@ travel.
 the rest: walks up the blur chain by depth, converts to display space, then
 applies the three dithers. Each has its own palette, tone curve, cell size and
 dissolve mode.
+
+### The entry
+
+On load the helix is parked a few slots back and every card is absent — not
+faded, not drawn at all. Once the last texture is in, two clocks start: a timed
+tween glides the helix into place, and each card materializes as a dithered disc
+opening out from its own centre, in a running order reshuffled every time.
+
+The reveal lives in the card pass rather than the composite, which is what keeps
+a card that hasn't arrived out of the blur chain — blend it toward the
+background instead and its light still smears into streaks across the frame. A
+cell is either the image at full strength or nothing, so it reads as the picture
+assembling rather than as an opacity ramp. The composite then prints its own
+dither over whatever has arrived but not yet settled, keyed to the same
+per-card progress, so a card doesn't snap straight to a clean photograph.
+
+It plays once per load, so the panel has a **replay** button next to it.
 
 ### The dither
 
@@ -102,11 +119,11 @@ gl/
   scene.js           renderer, cards, hover, the frame loop
   scroll.js          wheel/drag/touch into one number, with snap and tweens
   post.js            blur chain + composite pipeline
-  cardbuffer.js      offscreen id/dim/hover pass
+  cardbuffer.js      offscreen id/dim/hover/entry pass
   trail.js           cursor trail buffer
   gui.js             lil-gui panel
   color.js           hex to display-space vector
-  shaders/           card, composite, trail
+  shaders/           card, composite, trail, shared dither
 ```
 
 ## Using your own images

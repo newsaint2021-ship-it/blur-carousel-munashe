@@ -100,6 +100,15 @@ This bites constantly. The rules:
   sweep and the two hand off cleanly. Don't "fix" the ordering.
 - **Frustum culling is off on every card.** Positions come from the vertex
   shader, so the CPU-side bounding sphere is meaningless.
+- **The first moment after load is deliberately empty.** The entry waits for
+  every texture to settle before it opens — a card with no map renders black, so
+  starting sooner spends the arrival on empty rectangles. A hung request can't
+  hold it forever; `ENTRY_WAIT_LIMIT` in `scene.js` opens anyway.
+- **The entry reveal is compiled into two passes.** `revealGLSL` goes into both
+  the visible card shader and the card buffer, and both `discard`. That's not
+  duplication to clean up — the buffer is what hit testing reads, and a card
+  that can be clicked before it appears is worse than one that can't be clicked
+  after. It also stops the composite printing where nothing is drawn.
 
 ## Timing behaviour can't be screenshotted
 

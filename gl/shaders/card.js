@@ -2,6 +2,8 @@
 // shader bends each subdivided plane onto the cylinder radius so its left and
 // right edges recede in Z while the centre faces the camera.
 
+import { bayerGLSL, revealGLSL } from "./dither.js";
+
 export const cardVertex = /* glsl */ `
   uniform float uProgress;
   uniform float uIndex;
@@ -107,7 +109,16 @@ export const cardFragment = /* glsl */ `
   varying float vFacing;
   varying float vDepth;
 
+  ${bayerGLSL}
+  ${revealGLSL}
+
   void main() {
+    // Discarded rather than blended toward the background, because a card that
+    // hasn't arrived isn't a faint card — it isn't there. Blending would leave
+    // its light in the scene target for the blur chain to smear into streaks
+    // across the frame, and hold the card in front of the ones behind it.
+    if (entryHidden(vUv)) discard;
+
     // Cover-fit the texture inside the card.
     vec2 uv = (vUv - 0.5) * uImageRatio + 0.5;
     vec4 tex = texture2D(uMap, uv);

@@ -102,12 +102,18 @@ export function createScrollController(element, config) {
     // Drive the carousel somewhere from outside, as a timed eased tween.
     // Counts as input so the snap holds off and lets the travel play out
     // instead of engaging mid-flight and hauling it back where it started.
-    goTo(value) {
+    //
+    // The duration and handles are copied onto the tween rather than read from
+    // config each frame, so callers with their own timing — the entry spin —
+    // don't have to borrow the click-to-centre ones.
+    goTo(value, options = {}) {
       tween = {
         from: state.current,
         to: value,
         start: performance.now(),
-        duration: Math.max(1, config.focusDuration),
+        duration: Math.max(1, options.duration ?? config.focusDuration),
+        easeIn: options.easeIn ?? config.focusEaseIn,
+        easeOut: options.easeOut ?? config.focusEaseOut,
       };
       state.target = value;
       noteInput();
@@ -117,16 +123,10 @@ export function createScrollController(element, config) {
 
       if (tween) {
         const t = Math.min(1, (performance.now() - tween.start) / tween.duration);
-        // Handles ride along x only. Pushing focusEaseOut up pulls the second
+        // Handles ride along x only. Pushing the ease-out up pulls the second
         // handle toward the start, which stretches the deceleration over more
         // of the duration — that is the knob for how long it glides in.
-        const eased = bezier(
-          t,
-          config.focusEaseIn,
-          0,
-          1 - config.focusEaseOut,
-          1
-        );
+        const eased = bezier(t, tween.easeIn, 0, 1 - tween.easeOut, 1);
         state.current = tween.from + (tween.to - tween.from) * eased;
         state.target = tween.to;
 

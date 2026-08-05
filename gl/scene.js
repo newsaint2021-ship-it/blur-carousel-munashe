@@ -8,6 +8,10 @@ import { createTrail } from "./trail.js";
 import { createGui } from "./gui.js";
 import { hexToSRGB } from "./color.js";
 
+// A texture request that neither loads nor errors — a hung connection — would
+// hold the entry forever, and the frame behind it is empty. Start anyway.
+const ENTRY_WAIT_LIMIT = 5000;
+
 // [vertical, horizontal] weights per mode. "both" runs each below full so
 // combining them doesn't double the deflection.
 const BEND_WEIGHTS = {
@@ -21,6 +25,14 @@ const BEND_WEIGHTS = {
 function approach(current, target, config) {
   const rate = target > current ? config.hoverInEase : config.hoverOutEase;
   return current + (target - current) * rate;
+}
+
+// 1 makes the entry front a circle on the card, 0 an ellipse in its own shape.
+// Folded into the aspect the shader already takes rather than sent as a second
+// uniform — the reveal only ever uses the two together.
+function entryAspect() {
+  const aspect = config.cardWidth / config.cardHeight;
+  return 1 + (aspect - 1) * config.entryRound;
 }
 
 function smoothstep(edge0, edge1, x) {
@@ -102,6 +114,13 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
         uHover: { value: 0 },
         uDim: { value: 0 },
         uDimFade: { value: config.dimFade },
+        // Read by the visible pass and, through the shared uniform objects, by
+        // the card buffer — so the reveal, the hit test and the composite's
+        // entry channel all stop at the same edge.
+        uEntry: { value: 1 },
+        uEntryScale: { value: config.entryScale },
+        uEntrySoftness: { value: config.entrySoftness },
+        uEntryAspect: { value: entryAspect() },
       },
       // Culling backfaces would drop every card past 90°, which is most of the
       // ribbon at this angle step. The mirrored texture doesn't matter since
@@ -115,20 +134,33 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     const mesh = new THREE.Mesh(geometry, material);
     // Kept unshaped; the curve is applied on the way to the shader.
     mesh.userData.hoverRaw = { hover: 0, dim: 0 };
+    // 1 is absent, 0 is arrived. Only ever falls, so a card can't un-arrive.
+    // Its place in the running order is stored rather than its delay, so the
+    // stagger slider still does something while the arrival is playing.
+    mesh.userData.entry = 1;
+    mesh.userData.entryOrder = index;
     // Positions come entirely from the vertex shader, so the CPU-side bounding
     // sphere is meaningless.
     mesh.frustumCulled = false;
     scene.add(mesh);
     cards.push(mesh);
 
-    loader.load(src, (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = maxAnisotropy;
-      texture.generateMipmaps = true;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
-      material.uniforms.uMap.value = texture;
-      material.uniforms.uImageRatio.value.copy(coverRatio(texture));
-    });
+    loader.load(
+      src,
+      (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = maxAnisotropy;
+        texture.generateMipmaps = true;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        material.uniforms.uMap.value = texture;
+        material.uniforms.uImageRatio.value.copy(coverRatio(texture));
+        textureSettled();
+      },
+      undefined,
+      // A card that failed to load still has to be counted, or one 404 holds
+      // the entry for the whole wait limit.
+      textureSettled
+    );
   });
 
   function rebuildGeometry() {
@@ -145,6 +177,70 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
   // Built after the cards so it can borrow their uniform objects.
   const cardBuffer = createCardBuffer(renderer, scene, cards, config);
   post.compositeMaterial.uniforms.uCardBuffer.value = cardBuffer.texture;
+
+  // --- entry ----------------------------------------------------------------
+  // Two halves of one arrival: a timed tween on the scroll for the spin, and a
+  // per-card front in the frame loop for the reveal. Both start together, held
+  // back until the last texture has settled — a card with no map renders black,
+  // so opening sooner spends the move on empty rectangles.
+  let pending = IMAGES.length;
+  let entryStart = null;
+
+  // Fisher-Yates. Reshuffled on every run: a fixed order is legible after two
+  // or three viewings and starts to read as a sequence being replayed rather
+  // than as the set landing.
+  function shuffleEntryOrder() {
+    const order = cards.map((_, index) => index);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    cards.forEach((card, index) => (card.userData.entryOrder = order[index]));
+  }
+
+  // Parks the helix where the arrival begins. Called before the first frame as
+  // well, so the wait for textures is spent at the start of the move rather
+  // than sitting at the resting position and jumping backwards to open.
+  function parkForEntry() {
+    scroll.state.current = -config.entrySpin;
+    scroll.state.target = scroll.state.current;
+    shuffleEntryOrder();
+    for (const card of cards) {
+      card.userData.entry = 1;
+      // Written straight through as well as onto the card. The buffer is drawn
+      // at the top of the frame and only picks up uniforms the loop below sets,
+      // so going through the loop alone would draw one frame of whole cards —
+      // and this runs on the frame the textures land, which is exactly when
+      // that frame would be visible.
+      card.material.uniforms.uEntry.value = 1;
+    }
+  }
+
+  function beginEntry() {
+    if (!config.entry) return;
+    parkForEntry();
+    scroll.goTo(0, {
+      duration: config.entrySpinDuration,
+      easeIn: config.entryEaseIn,
+      easeOut: config.entryEaseOut,
+    });
+    entryStart = performance.now();
+  }
+
+  const entryWait = setTimeout(() => {
+    pending = 0;
+    beginEntry();
+  }, ENTRY_WAIT_LIMIT);
+
+  // Counts down to the open. Guarded against the wait limit having fired first,
+  // which would otherwise restart the entry as the late textures trickled in.
+  function textureSettled() {
+    if (pending === 0 || --pending > 0) return;
+    clearTimeout(entryWait);
+    beginEntry();
+  }
+
+  if (config.entry) parkForEntry();
 
   const pointer = { x: 0, y: 0, inside: false };
   let hovered = -1;
@@ -262,6 +358,8 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
 
   const gui = createGui(config, {
     onGeometryChange: rebuildGeometry,
+    // An arrival can't be tuned if it only plays once per reload.
+    onEntryReplay: beginEntry,
     onCameraChange() {
       camera.fov = config.fov;
       camera.position.z = config.cameraZ;
@@ -285,6 +383,9 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
       u.uTrailAccent.value.copy(hexToSRGB(config.trailAccent));
       u.uTrailPaper.value.copy(hexToSRGB(config.trailPaper));
       u.uTrailRimColor.value.copy(hexToSRGB(config.trailRimColor));
+      u.uEntryInk.value.copy(hexToSRGB(config.entryDitherInk));
+      u.uEntryAccent.value.copy(hexToSRGB(config.entryDitherAccent));
+      u.uEntryPaper.value.copy(hexToSRGB(config.entryDitherPaper));
     },
   });
 
@@ -343,6 +444,16 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     const anyHovered = hovered >= 0;
     const count = cards.length;
 
+    // Entry clock, in ms since the arrival opened. A null start means the
+    // textures aren't in yet, so cards stay away rather than arriving black;
+    // the master switch brings all of them in on the spot instead. Both ends
+    // are infinities so the per-card arithmetic below needs no special case.
+    const entryElapsed = !config.entry
+      ? Infinity
+      : entryStart === null
+        ? -Infinity
+        : performance.now() - entryStart;
+
     // Slot, not index, and deliberately not wrapped. The first and last slots
     // are neighbours in the loop but sit at opposite ends of the frame, so
     // wrapping the distance would call them adjacent.
@@ -362,7 +473,8 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
       // only distant cards dissolve. That reads as focus instead of an overlay.
       // The hovered card sits at distance 0, so it lands on zero dim with no
       // special case needed.
-      const separation = anyHovered ? Math.abs(slotOf(index) - hoveredSlot) : 0;
+      const slot = slotOf(index);
+      const separation = anyHovered ? Math.abs(slot - hoveredSlot) : 0;
       const dimTarget = anyHovered
         ? smoothstep(0, config.focusFalloff, separation)
         : 0;
@@ -370,11 +482,33 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
       raw.hover = approach(raw.hover, isHovered ? 1 : 0, config);
       raw.dim = approach(raw.dim, dimTarget, config);
 
+      // Entry. Each card waits out its place in the running order, then opens
+      // over its own duration. Held to falling only, so dragging a slider
+      // mid-arrival can only ever bring cards in — recomputing freely would
+      // send ones already on screen back out, which reads as a glitch rather
+      // than as the retune it is.
+      const local = Math.min(
+        1,
+        Math.max(
+          0,
+          (entryElapsed - card.userData.entryOrder * config.entryStagger) /
+            Math.max(1, config.entryDuration)
+        )
+      );
+      card.userData.entry = Math.min(
+        card.userData.entry,
+        1 - smoothstep(0, 1, Math.pow(local, config.entryCurve))
+      );
+
       // Shaped on the way into the shader, so the eased state stays linear and
       // the curve can be changed live without jumping.
       u.uHover.value = Math.pow(raw.hover, config.hoverCurve);
       u.uDim.value = Math.pow(raw.dim, config.hoverCurve);
       u.uDimFade.value = config.dimFade;
+      u.uEntry.value = card.userData.entry;
+      u.uEntryScale.value = config.entryScale;
+      u.uEntrySoftness.value = config.entrySoftness;
+      u.uEntryAspect.value = entryAspect();
       u.uProgress.value = progress;
       u.uRadius.value = config.radius;
       u.uPitch.value = config.pitch;
@@ -428,6 +562,12 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     c.uTrailRim.value = config.trailRim;
     c.uTrailRimThickness.value = config.trailRimThickness;
     c.uTrailRimSoftness.value = config.trailRimSoftness;
+    c.uEntryDither.value = config.entry ? config.entryDither : 0;
+    c.uEntryScale.value = config.entryScale;
+    c.uEntryLevels.value = config.entryDitherLevels;
+    c.uEntryDissolve.value = config.entryDitherDissolve;
+    c.uEntryGamma.value = config.entryDitherGamma;
+    c.uEntryMono.value = config.entryDitherMono;
     c.uHoverClean.value = config.hoverClean;
     c.uCoupling.value = config.coupling;
     c.uStageStreakEnd.value = config.stageStreakEnd;
@@ -464,6 +604,7 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
 
   return function dispose() {
     cancelAnimationFrame(frame);
+    clearTimeout(entryWait);
     window.removeEventListener("resize", onResize);
     window.removeEventListener("keydown", onKeyDown);
     canvas.removeEventListener("pointermove", onPointerMove);

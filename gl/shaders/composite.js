@@ -1,6 +1,8 @@
 // One `edge` ramp drives blur level, quantization depth and fade together, so
 // the top/bottom treatment reads as a single effect instead of three stacked.
 
+import { bayerGLSL } from "./dither.js";
+
 export const fullscreenVertex = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -101,6 +103,24 @@ export const compositeFragment = /* glsl */ `
 
   uniform float uDissolve;
 
+  // Entry. The odd one out: the other three answer to where a pixel sits or
+  // what the cursor is doing, this one answers to time and runs once. The
+  // arrival itself is a presence mask in the card pass — a card is drawn or it
+  // isn't — and this only grains what has already appeared, so a card carries
+  // some print while it lands and settles out of it.
+  //
+  // The drive arrives per card in the buffer's alpha, and stops at the same
+  // edge the reveal does, so nothing is printed where nothing is drawn.
+  uniform float uEntryDither;
+  uniform float uEntryScale;
+  uniform float uEntryLevels;
+  uniform float uEntryDissolve;
+  uniform vec3  uEntryInk;
+  uniform vec3  uEntryAccent;
+  uniform vec3  uEntryPaper;
+  uniform float uEntryGamma;
+  uniform float uEntryMono;
+
   // Cursor trail. Unlike the other two this one remembers — the buffer is the
   // previous frame decayed and smeared plus a stroke along the segment the
   // cursor covered, so r is how recently the trail passed through and gb is the
@@ -126,13 +146,7 @@ export const compositeFragment = /* glsl */ `
 
   varying vec2 vUv;
 
-  // Recursive Bayer. bayer8 in [0,1) without a 64-entry lookup table.
-  float bayer2(vec2 a) {
-    a = floor(a);
-    return fract(a.x / 2.0 + a.y * a.y * 0.75);
-  }
-  #define bayer4(a) (bayer2(0.5 * (a)) * 0.25 + bayer2(a))
-  #define bayer8(a) (bayer4(0.5 * (a)) * 0.25 + bayer2(a))
+  ${bayerGLSL}
 
   float luma(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -233,8 +247,11 @@ export const compositeFragment = /* glsl */ `
     edge = pow(edge, uEdgePower);
 
     vec4 scene = texture2D(uScene, vUv);
-    vec3 card = texture2D(uCardBuffer, vUv).rgb;
+    vec4 card = texture2D(uCardBuffer, vUv);
     float dim = pow(card.g, uHoverBlurCurve);
+
+    // Stored as arrived-ness so the cleared background counts as done.
+    float entry = 1.0 - card.a;
 
     // Exemption for the hovered card. Frame-edge blur, fade and dither are all
     // functions of screen position, so without this a card you'd resolved by
@@ -392,6 +409,26 @@ export const compositeFragment = /* glsl */ `
     float rim = 1.0 -
       smoothstep(uTrailRimThickness - rimSoft, uTrailRimThickness + rimSoft, rimDist);
     result = mix(result, uTrailRimColor, rim * uTrailRim);
+
+    // --- entry --------------------------------------------------------------
+    // Drawn over everything, including the trail. While a card is still
+    // arriving that's the whole story — showing the standing dithers through it
+    // reads as two effects competing rather than one thing resolving. It's off
+    // a few seconds after load and costs one uniform branch after that, since
+    // the drive is zero everywhere and the mix collapses.
+    float entryThreshold = bayer8(gl_FragCoord.xy / uEntryScale);
+    vec3 entrySource = uEntryScale > 1.0
+      ? toDisplay(composed(cellUv(uEntryScale, push), lvl), fade)
+      : c;
+
+    Palette entryPalette =
+      Palette(uEntryInk, uEntryAccent, uEntryPaper, uEntryGamma, uEntryMono);
+
+    result = mix(
+      result,
+      poster(entryPalette, entrySource, entryThreshold, max(uEntryLevels, 2.0)),
+      ditherMask(entry * uEntryDither, entryThreshold, uEntryDissolve)
+    );
 
     gl_FragColor = vec4(clamp(result, 0.0, 1.0), 1.0);
   }

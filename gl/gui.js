@@ -35,6 +35,45 @@ export function createGui(config, handlers) {
   snap.add(config, "snapStiffness", 0.01, 0.4, 0.005).name("spring stiffness");
   snap.add(config, "snapDamping", 0.3, 0.95, 0.01).name("spring damping");
 
+  // The arrival. `replay` reruns it in place — it plays once per reload
+  // otherwise, which is no way to tune anything.
+  const entry = gui.addFolder("entry");
+  entry.add(config, "entry").name("enabled");
+  entry.add({ replay: handlers.onEntryReplay }, "replay").name("▶ replay");
+  entry.add(config, "entryDuration", 150, 4000, 50).name("per card (ms)");
+  entry.add(config, "entryStagger", 0, 400, 5).name("card to card (ms)");
+  entry.add(config, "entryCurve", 0.3, 4, 0.05).name("open curve");
+  entry.add(config, "entrySoftness", 0, 1.5, 0.01).name("front softness");
+  entry.add(config, "entryRound", 0, 1, 0.01).name("front roundness");
+  entry.add(config, "entryScale", 1, 24, 0.5).name("cell size");
+  entry.add(config, "entrySpin", 0, 12, 0.1).name("slots travelled");
+  entry
+    .add(config, "entrySpinDuration", 400, 6000, 50)
+    .name("spin duration (ms)");
+  entry.add(config, "entryEaseIn", 0, 1, 0.01).name("spin ease in");
+  entry.add(config, "entryEaseOut", 0, 0.98, 0.01).name("spin ease out");
+
+  const entryDither = gui.addFolder("entry — dither");
+  entryDither.add(config, "entryDither", 0, 1, 0.01).name("intensity");
+  entryDither.add(config, "entryDitherLevels", 2, 8, 1).name("tones");
+  entryDither
+    .add(config, "entryDitherDissolve", 0, 1, 0.01)
+    .name("dissolve (0 = fade)");
+  entryDither.add(config, "entryDitherGamma", 0.4, 4, 0.05).name("tone bias");
+  entryDither.add(config, "entryDitherMono", 0, 1, 0.01).name("photo → poster");
+  entryDither
+    .addColor(config, "entryDitherInk")
+    .name("ink")
+    .onChange(handlers.onPaletteChange);
+  entryDither
+    .addColor(config, "entryDitherAccent")
+    .name("accent")
+    .onChange(handlers.onPaletteChange);
+  entryDither
+    .addColor(config, "entryDitherPaper")
+    .name("paper")
+    .onChange(handlers.onPaletteChange);
+
   const hover = gui.addFolder("hover — easing");
   hover.add(config, "hoverInEase", 0.01, 0.6, 0.005).name("ease in");
   hover.add(config, "hoverOutEase", 0.01, 0.6, 0.005).name("ease out");
