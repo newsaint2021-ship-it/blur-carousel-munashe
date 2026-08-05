@@ -1,7 +1,19 @@
 {
-  "name": "carousel-blur",
-  "version": "0.1.0",
-  "private": true,
+  "name": "dither-blur",
+  "version": "1.0.0",
+  "description": "A WebGL carousel where cards ride a helix and dissolve into an ordered dither. Three.js + Next.js.",
+  "license": "MIT",
+  "author": "Yousuf Soomro",
+  "keywords": [
+    "webgl",
+    "threejs",
+    "dither",
+    "carousel",
+    "shaders",
+    "nextjs",
+    "bayer",
+    "post-processing"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,9 +21,12 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "next": "16.2.12",
+    "gsap": "^3.15.0",
+    "lil-gui": "^0.21.0",
+    "next": "^16.2.12",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
