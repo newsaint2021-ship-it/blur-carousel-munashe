@@ -31,6 +31,19 @@ export const config = {
   ease: 0.075,
   autoSpin: 0.0,
 
+  // Autoplay — one card at a time, never a continuous spin. Each advance is the
+  // same timed tween click-to-centre uses, so it lands on a whole slot and the
+  // snap has nothing to correct. Interval is start to start, so the card holds
+  // for interval − duration before the next move.
+  autoplay: true,
+  autoplayInterval: 5000,
+  autoplayDuration: 1250,
+  // Quiet time after a wheel, drag, tap or key before autoplay takes back over.
+  autoplayResume: 7000,
+  // Velocity (slots/frame) below which a fling counts as settled. Advancing on
+  // top of a snap still rocking in would stack two moves.
+  autoplaySettle: 0.0015,
+
   // Snap — once a fling has mostly spent itself, settle on the nearest card
   // rather than stopping wherever the drift ran out.
   snap: true,
@@ -282,21 +295,22 @@ export const config = {
   background: "#000000",
 };
 
-// Placeholder names, ordered to loosely suit the image they label. Indexed
-// against the centred card — keep both arrays the same length or they cycle.
+// Neutral slot identifiers, one per image. Indexed against the centred card —
+// keep both arrays the same length or they cycle. Swap in real project titles
+// here when the work is ready to be named publicly.
 export const PROJECTS = [
-  "Pacekeeper",
-  "Nocturne Radio",
-  "Aurelia Objects",
-  "Granite Capital",
-  "Encore Live",
-  "Turfline",
-  "Kinesis Festival",
-  "Volta Mobility",
-  "Redshift Agency",
-  "Cobalt Card",
-  "Highsign Studio",
-  "Monochrome Supply",
+  "work-01",
+  "work-02",
+  "work-03",
+  "work-04",
+  "work-05",
+  "work-06",
+  "work-07",
+  "work-08",
+  "work-09",
+  "work-10",
+  "work-11",
+  "work-12",
 ];
 
 // See CREDITS.md before reusing these — they are not mine to license.

@@ -6,6 +6,7 @@ import { createPostPipeline } from "./post.js";
 import { createCardBuffer } from "./cardbuffer.js";
 import { createTrail } from "./trail.js";
 import { createGui } from "./gui.js";
+import { createAutoplay } from "./autoplay.js";
 import { hexToSRGB } from "./color.js";
 
 // A texture request that neither loads nor errors — a hung connection — would
@@ -216,8 +217,17 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     }
   }
 
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const autoplay = createAutoplay(scroll, config, {
+    reducedMotion: () => reducedMotion.matches,
+    isHidden: () => document.hidden,
+  });
+
   function beginEntry() {
-    if (!config.entry) return;
+    if (!config.entry) {
+      autoplay.schedule();
+      return;
+    }
     parkForEntry();
     scroll.goTo(0, {
       duration: config.entrySpinDuration,
@@ -225,6 +235,9 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
       easeOut: config.entryEaseOut,
     });
     entryStart = performance.now();
+    // Counted from the end of the spin, so the first card holds for a full
+    // interval once the arrival has come to rest.
+    autoplay.schedule(entryStart + config.entrySpinDuration);
   }
 
   const entryWait = setTimeout(() => {
@@ -344,13 +357,29 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
   // holding focus on a card you're scrolling away from just reads as stuck.
   canvas.addEventListener("wheel", releaseLock, { passive: true });
 
+  // The helix is composed for a landscape frame. On a narrow one the camera
+  // backs off just far enough that the centred card fills a set share of the
+  // width, instead of the card overrunning both edges. The front card sits at
+  // cameraZ − radius, so that's the distance solved for. Never closer than the
+  // configured position, so desktop composition is untouched.
+  const NARROW_CARD_SHARE = 0.84;
+  function fitCamera() {
+    const halfFov = Math.tan(THREE.MathUtils.degToRad(config.fov) / 2);
+    const fitted =
+      config.radius +
+      config.cardWidth / (2 * halfFov * camera.aspect * NARROW_CARD_SHARE);
+    camera.fov = config.fov;
+    camera.position.z = Math.max(config.cameraZ, fitted);
+    camera.updateProjectionMatrix();
+  }
+
   function resize() {
     const width = canvas.clientWidth || window.innerWidth;
     const height = canvas.clientHeight || window.innerHeight;
 
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
-    camera.updateProjectionMatrix();
+    fitCamera();
     post.setSize(width, height, renderer.getPixelRatio());
     cardBuffer.setSize(width, height);
     trail.setSize(width, height, renderer.getPixelRatio());
@@ -360,11 +389,7 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     onGeometryChange: rebuildGeometry,
     // An arrival can't be tuned if it only plays once per reload.
     onEntryReplay: beginEntry,
-    onCameraChange() {
-      camera.fov = config.fov;
-      camera.position.z = config.cameraZ;
-      camera.updateProjectionMatrix();
-    },
+    onCameraChange: fitCamera,
     onBackgroundChange() {
       backgroundLinear.set(config.background);
       backgroundSRGB.copy(hexToSRGB(config.background));
@@ -389,13 +414,34 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     },
   });
 
-  // Panel starts hidden and lil-gui binds no keys of its own, so `g` toggles.
+  // Arrow keys step one card, the keyboard equivalent of a wheel notch. The
+  // tuning panel stays a development tool — `g` only opens it outside
+  // production, so visitors never stumble into it.
+  const devTools = process.env.NODE_ENV !== "production";
   const onKeyDown = (event) => {
-    if (event.key === "g" && !event.metaKey && !event.ctrlKey) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (devTools && event.key === "g") {
       gui.show(gui._hidden);
+      return;
     }
+    const step =
+      event.key === "ArrowDown" || event.key === "ArrowRight"
+        ? 1
+        : event.key === "ArrowUp" || event.key === "ArrowLeft"
+          ? -1
+          : 0;
+    if (!step) return;
+    event.preventDefault();
+    scroll.noteUserInput();
+    releaseLock();
+    scroll.goTo(Math.round(scroll.state.target) + step);
   };
   window.addEventListener("keydown", onKeyDown);
+
+  const onVisibilityChange = () => {
+    if (!document.hidden) autoplay.resume();
+  };
+  document.addEventListener("visibilitychange", onVisibilityChange);
 
   let frame = 0;
   let activeIndex = -1;
@@ -404,6 +450,7 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     frame = requestAnimationFrame(tick);
 
     config.autoSpin && (scroll.state.target += config.autoSpin);
+    autoplay.step(performance.now());
     const progress = scroll.update();
 
     // Centred index is progress plus half a turn, rounded. Only reported on
@@ -607,6 +654,7 @@ export function createCarousel(canvas, { onActiveChange } = {}) {
     clearTimeout(entryWait);
     window.removeEventListener("resize", onResize);
     window.removeEventListener("keydown", onKeyDown);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerleave", onPointerLeave);
     canvas.removeEventListener("pointerdown", onPointerDown);

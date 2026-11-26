@@ -28,6 +28,13 @@ export function createGui(config, handlers) {
   scroll.add(config, "ease", 0.01, 0.3, 0.005);
   scroll.add(config, "autoSpin", 0, 0.02, 0.0005);
 
+  const autoplay = gui.addFolder("autoplay");
+  autoplay.add(config, "autoplay").name("enabled");
+  autoplay.add(config, "autoplayInterval", 1500, 12000, 50).name("interval (ms)");
+  autoplay.add(config, "autoplayDuration", 300, 3000, 10).name("transition (ms)");
+  autoplay.add(config, "autoplayResume", 0, 20000, 100).name("resume after (ms)");
+  autoplay.add(config, "autoplaySettle", 0.0002, 0.01, 0.0001).name("settled below");
+
   const snap = gui.addFolder("snap to centre");
   snap.add(config, "snap").name("enabled");
   snap.add(config, "snapSpeed", 0.002, 0.1, 0.002).name("settles below");
