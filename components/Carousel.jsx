@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { PROJECTS } from "../gl/config";
 
+const pad = (n) => String(n).padStart(2, "0");
+
 export default function Carousel() {
   const canvasRef = useRef(null);
   const [active, setActive] = useState(0);
@@ -14,9 +16,15 @@ export default function Carousel() {
     // three + lil-gui are browser-only, so keep them out of the server bundle.
     import("../gl/scene.js").then(({ createCarousel }) => {
       if (cancelled) return;
-      dispose = createCarousel(canvasRef.current, {
-        onActiveChange: (index) => setActive(index % PROJECTS.length),
-      });
+      // No WebGL2 (old devices, some locked-down browsers) means no carousel,
+      // but the studio framing around it should still stand on its own.
+      try {
+        dispose = createCarousel(canvasRef.current, {
+          onActiveChange: (index) => setActive(index % PROJECTS.length),
+        });
+      } catch (error) {
+        console.warn("Carousel unavailable:", error);
+      }
     });
 
     return () => {
@@ -26,26 +34,24 @@ export default function Carousel() {
   }, []);
 
   return (
-    <div>
-      <canvas ref={canvasRef} className="fixed inset-0 h-full w-full" />
+    <>
+      <canvas
+        ref={canvasRef}
+        aria-label="Selected work. Scroll, drag or use the arrow keys to browse."
+        role="img"
+        className="fixed inset-0 h-full w-full"
+      />
 
-      {/* Colours set outright rather than derived with a blend mode.
-          mix-blend-mode composites an element against its backdrop, not its own
-          text against its own background — so with the highlight on the same
-          element as the label there's nothing for it to invert against. It only
-          worked while the highlight was a separate layer underneath. */}
-      <div className="fixed bottom-2 right-0 w-75 main-font font-medium">
-        {PROJECTS.map((name, index) => (
-          <p
-            key={name}
-            className={`px-2 py-0.5 text-sm/[1] ${
-              index === active ? "bg-white text-black" : "text-white"
-            }`}
-          >
-            {name}
-          </p>
-        ))}
-      </div>
-    </div>
+      <p
+        aria-live="polite"
+        className="hero-fade hero-fade-late pointer-events-none fixed right-0 bottom-0 z-10 flex items-baseline gap-2 px-[max(1.25rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] font-[family-name:var(--font-geist)] text-[11px] tracking-[0.2em] text-white/50 tabular-nums sm:px-10 sm:pb-10 lg:px-14 lg:pb-12"
+      >
+        <span className="sr-only">Work</span>
+        <span className="text-white">{pad(active + 1)}</span>
+        <span aria-hidden="true">/</span>
+        <span className="sr-only">of</span>
+        <span>{pad(PROJECTS.length)}</span>
+      </p>
+    </>
   );
 }

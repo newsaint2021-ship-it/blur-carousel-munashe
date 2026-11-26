@@ -53,6 +53,10 @@ export function createScrollController(element, config) {
   // a lerp has a rate but no duration — fastest at the start, crawling at the
   // end, which reads as arriving twice.
   let tween = null;
+  // Kept apart from lastInput, which goTo also stamps. Autoplay needs to know
+  // when a person last touched the carousel, not when anything last moved it —
+  // otherwise its own advances would read as interaction and hold it off.
+  let lastUserInput = -Infinity;
 
   const noteInput = () => {
     lastInput = performance.now();
@@ -62,6 +66,7 @@ export function createScrollController(element, config) {
   // Any real input abandons the tween so the carousel never fights the user.
   const interrupt = () => {
     tween = null;
+    lastUserInput = performance.now();
     noteInput();
   };
 
@@ -99,6 +104,17 @@ export function createScrollController(element, config) {
 
   return {
     state,
+    get lastUserInput() {
+      return lastUserInput;
+    },
+    get busy() {
+      return tween !== null || dragging;
+    },
+    // For input that arrives outside this controller (click-to-centre, keys)
+    // but should still count as a person taking over.
+    noteUserInput() {
+      lastUserInput = performance.now();
+    },
     // Drive the carousel somewhere from outside, as a timed eased tween.
     // Counts as input so the snap holds off and lets the travel play out
     // instead of engaging mid-flight and hauling it back where it started.
